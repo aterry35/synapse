@@ -79,10 +79,16 @@ We are building the ultimate AI Assistant. Here's what's coming:
 **We need YOU!** Synapse is an open platform.
 If you have an idea for a plugin (e.g., Home Automation, Crypto Trading, Data Analysis), build it and submit a PR!
 
+### How to Build a Plugin
+All plugins live in the `app/plugins/` directory. Synapse automatically discovers and loads them on startup.
+
+👉 **[Read the Plugin Development Guide](PLUGIN_GUIDE.md)** for step-by-step instructions.
+
+### Submission Process
 1.  Fork the repo.
-2.  Create your feature branch (`git checkout -b feature/AmazingPlugin`).
+2.  Create your branch (`git checkout -b plugin/AmazingPlugin`).
 3.  Commit your changes (`git commit -m 'Add AmazingPlugin'`).
-4.  Push to the branch (`git push origin feature/AmazingPlugin`).
+4.  Push to the branch (`git push origin plugin/AmazingPlugin`).
 5.  Open a Pull Request.
 
 **Join the revolution.** Let's build the future of Agentic AI together.
