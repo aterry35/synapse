@@ -64,6 +64,7 @@ We are building the ultimate AI Assistant. Here's what's coming:
 *   [ ] **Voice Interface**: Real-time voice interaction via WebSockets.
 *   [ ] **Docker Integration**: Sandboxed execution for generated code.
 *   [ ] **Memory Module**: Long-term memory using Vector Databases.
+*   [ ] **Smart Price Engine**: Advanced `/sysctl` logic that scrapes multiple sites (Amazon, eBay, etc.), compares prices, and returns **only** the link to the best deal.
 *   [ ] **Marketplace**: A registry for community plugins.
 
 ---
