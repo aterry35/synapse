@@ -30,6 +30,13 @@
 *   **Orchestrator**: Manages task queues, locking, and concurrency.
 *   **Web Dashboard**: A Cyberpunk-themed UI (v2.2) to monitor logs and control agents.
 
+### 5. **WhatsApp Bridge** 🟢
+*   **Integration**: Uses `@whiskeysockets/baileys` to run a headless WhatsApp Web client.
+*   **Capabilities**:
+    *   Receives commands via "Note to Self" or DMs.
+    *   Replies directly in the chat.
+    *   Resilient auto-reconnect logic.
+
 ---
 
 ## 🛠️ Installation
@@ -60,9 +67,31 @@
     ./start_synapse.sh
     ```
     *   **Dashboard**: `http://127.0.0.1:8000/`
-    *   **Telegram**: Start chatting with your bot!
+    *   **Telegram**: `https://t.me/your_bot_username`
+    *   **WhatsApp**: Scan the QR code in the terminal!
 
 ---
+
+## 📱 Communication & Usage
+
+### 1. Telegram
+*   **Setup**: Create a bot via `@BotFather` and add the token to `.env`.
+*   **Usage**: Simply DM the bot. It supports all commands.
+*   **Pros**: Rich UI, buttons, immediate response.
+
+### 2. WhatsApp (Beta)
+*   **Setup**: 
+    1.  Start Synapse (`./start_synapse.sh`).
+    2.  Watch the terminal for a **QR Code**.
+    3.  Scan it with your phone (WhatsApp > Linked Devices > Link a Device).
+*   **Usage**: 
+    *   DM your own number ("Note to Self").
+    *   Start message with `/` (e.g., `/deals iphone 16`).
+*   **Pros**: Convenience, works on existing account.
+
+---
+
+
 
 ## 🔮 Future Roadmap
 

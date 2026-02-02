@@ -1,0 +1,16 @@
+{
+    "name": "synapse-whatsapp-bridge",
+    "version": "1.0.0",
+    "description": "Node.js bridge for Synapse WhatsApp integration using Baileys",
+    "main": "index.js",
+    "scripts": {
+        "start": "node index.js"
+    },
+    "dependencies": {
+        "@whiskeysockets/baileys": "^7.0.0-rc.9",
+        "axios": "^1.6.0",
+        "dotenv": "^16.0.0",
+        "link-preview-js": "^3.2.0",
+        "qrcode-terminal": "^0.12.0"
+    }
+}

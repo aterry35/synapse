@@ -23,6 +23,11 @@ class DealsPlugin(PluginBase):
         return {"status": "running" if self.running else "idle", "progress": "N/A", "message": "Price Engine Ready"}
 
     def execute(self, command: str, context: dict) -> str:
+        # Debug Logger
+        import logging
+        logging.basicConfig(filename='debug_deals.log', level=logging.DEBUG, format='%(asctime)s %(message)s')
+        logging.info(f"Starting deals command for: {command}")
+        
         self.running = True
         try:
             # Parse command: /deals iphone 15
@@ -30,36 +35,17 @@ class DealsPlugin(PluginBase):
             if not product:
                 return "Usage: /deals <product name>"
             
-            # Scrape concurrently using threads
-            import concurrent.futures
+            # Scrape sequentially to prevent ChromeDriver crashes/resource exhaustion
+            # All scrapers now return a LIST of dicts: [{source, price, link, name}, ...]
+            ebay_results = self._safe_scrape(self._scrape_ebay, product) or []
+            amzn_results = self._safe_scrape(self._scrape_amazon, product) or []
+            sd_results = self._safe_scrape(self._scrape_slickdeals, product) or []
             
-            # Reduce workers to 2 to see if stability improves
-            with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
-                
-                # Wrapper to handle driver lifecycle per thread
-                def scrape_wrapper(scrape_func, prod):
-                    driver = self._get_driver()
-                    try:
-                        return scrape_func(driver, prod)
-                    finally:
-                        try:
-                            driver.quit()
-                        except:
-                            pass
-
-                future_ebay = executor.submit(scrape_wrapper, self._scrape_ebay, product)
-                future_amzn = executor.submit(scrape_wrapper, self._scrape_amazon, product)
-                future_sd = executor.submit(scrape_wrapper, self._scrape_slickdeals, product)
-                
-                ebay_price, ebay_link, ebay_name = future_ebay.result()
-                amzn_price, amzn_link, amzn_name = future_amzn.result()
-                sd_price, sd_link, sd_name = future_sd.result()
-            
-            # Compare
+            # Combine all candidates
             candidates = []
-            if ebay_price: candidates.append({"source": "eBay", "price": ebay_price, "link": ebay_link, "name": ebay_name})
-            if amzn_price: candidates.append({"source": "Amazon", "price": amzn_price, "link": amzn_link, "name": amzn_name})
-            if sd_price: candidates.append({"source": "Slickdeals", "price": sd_price, "link": sd_link, "name": sd_name})
+            candidates.extend(ebay_results)
+            candidates.extend(amzn_results)
+            candidates.extend(sd_results)
             
             if not candidates:
                  return f"Could not find valid prices for '{product}' on Amazon, eBay, or Slickdeals. (Websites might be blocking the bot)."
@@ -70,17 +56,34 @@ class DealsPlugin(PluginBase):
             if best_deal:
                 winner = best_deal
                 reason = "AI Selected for Best Value"
+                return f"Found best deal on {winner['source']}: ${winner['price']}\nProduct: {winner['name']}\nReason: {reason}\nLink: {winner['link']}"
             else:
-                # Fallback to cheapest
-                candidates.sort(key=lambda x: x['price'])
-                winner = candidates[0]
-                reason = "Lowest Price"
-
-            return f"Found best deal on {winner['source']}: ${winner['price']}\nProduct: {winner['name']}\nReason: {reason}\nLink: {winner['link']}"
+                return f"I found {len(candidates)} listings, but my AI analysis determined they were likely accessories or cases, not the actual '{product}'. Please try a more specific query."
 
         finally:
             self.running = False
             pass
+
+    def _safe_scrape(self, scrape_func, product):
+        import logging
+        driver = None
+        try:
+            logging.info(f"Scraping {scrape_func.__name__}...")
+            driver = self._get_driver()
+            result = scrape_func(driver, product)
+            logging.info(f"Result from {scrape_func.__name__}: Found {len(result) if result else 0} items")
+            return result
+        except Exception as e:
+            logging.error(f"Scrape Error ({scrape_func.__name__}): {e}")
+            print(f"Scrape Error ({scrape_func.__name__}): {e}")
+            return []
+        finally:
+            if driver:
+                try:
+                    driver.quit()
+                    logging.info("Driver closed.")
+                except:
+                    pass
 
     def _analyze_with_gemini(self, candidates, product):
         import os
@@ -92,31 +95,55 @@ class DealsPlugin(PluginBase):
             
         try:
             genai.configure(api_key=api_key)
-            model = genai.GenerativeModel('gemini-pro')
+            model = genai.GenerativeModel('gemini-2.0-flash')
             
             prompt = f"""
-            You are a shopping assistant. I am looking for: "{product}".
-            Here are the available options found:
+            You are a smart shopping assistant. I am searching for: "{product}".
             
+            Here are the candidate products found on Amazon/eBay:
             {candidates}
             
-            Task:
-            1. Identify which option is the real product (ignore accessories, cases, or misleading titles if possible).
-            2. Comparison: Pick the best value (lowest price for the actual item).
-            3. Return the JSON object of the winner EXACTLY as provided in the list.
-            4. If all are bad, return the cheapest one.
+            YOUR TASK:
+            1.  **FILTER**: Identify which candidates are the **ACTUAL DEVICE** and which are accessories/cases.
+            2.  **EXCLUDE**: Discard any item that is a case, skin, cover, or accessory.
+            3.  **SELECT**: From the valid actual devices, pick the one with the **lowest price**.
             
-            Output ONLY the JSON of the single best option. No markdown.
+            If NO valid actual devices are found (all are cases), return {{ "error": "No valid products found" }}.
+            
+            Otherwise, return the JSON object of the best winner EXACTLY as it appears in the list.
+            
+            Example Output Format:
+            {{
+                "source": "Amazon",
+                "price": 999.00,
+                "link": "...",
+                "name": "Iphone 16 Pro 128GB"
+            }}
+            
+            Return ONLY valid JSON. No markdown formatting.
             """
             
             response = model.generate_content(prompt)
-            clean_text = response.text.replace("```json", "").replace("```", "").strip()
+            # Robust JSON cleaning
+            text = response.text.strip()
+            if text.startswith("```json"):
+                text = text[7:]
+            if text.endswith("```"):
+                text = text[:-3]
+            text = text.strip()
             
             import json
             try:
-                return json.loads(clean_text)
+                data = json.loads(text)
+                if "error" in data: return None
+                return data
             except:
-                return eval(clean_text)
+                # Fallback: try eval but be careful
+                try:
+                    return eval(text)
+                except:
+                    print(f"JSON Parse Failed. Text: {text}")
+                    return None
                 
         except Exception as e:
             print(f"Gemini Analysis Failed: {e}")
@@ -135,155 +162,194 @@ class DealsPlugin(PluginBase):
         options.add_argument("--disable-blink-features=AutomationControlled")
         options.add_experimental_option("excludeSwitches", ["enable-automation"])
         options.add_experimental_option("useAutomationExtension", False)
-        # options.add_argument("--headless")
+        options.add_argument("--headless=new")
+        options.add_argument("--window-size=1920,1080")
+        options.add_argument("--lang=en-US")
+        options.add_argument("--accept-lang=en-US,en;q=0.9")
         
         service = Service(ChromeDriverManager().install())
         driver = webdriver.Chrome(service=service, options=options)
         
-        driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+        # Additional undetectable scripts
+        driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
+            "source": """
+                Object.defineProperty(navigator, 'webdriver', {
+                    get: () => undefined
+                })
+            """
+        })
         return driver
 
     def _parse_price(self, price_str):
         if not price_str: return None
-        # Remove $ and ,
-        clean = re.sub(r'[^\d.]', '', price_str)
+        # Remove $ and , and ' to '
+        clean = price_str.replace('$', '').replace(',', '').strip()
         try:
-            return float(clean)
+            # Handle range: "10 to 20"
+            if ' ' in clean:
+                clean = clean.split(' ')[0]
+            return float(re.findall(r"\d+\.\d+", clean)[0])
         except:
             return None
 
     def _scrape_ebay(self, driver, product):
+        results = []
         try:
+            # Simplified search
             url = f"https://www.ebay.com/sch/i.html?_nkw={product.replace(' ', '+')}&_sop=15"
             driver.get(url)
-            # Better waiting
-            try:
-                WebDriverWait(driver, 5).until(EC.presence_of_element_located((By.CLASS_NAME, "s-item__info")))
-            except:
-                pass # Timeout, try parsing anyway
             
-            items = driver.find_elements(By.CLASS_NAME, "s-item__info")
+            # Wait for items
+            try:
+                WebDriverWait(driver, 5).until(EC.presence_of_element_located((By.CSS_SELECTOR, ".s-item")))
+            except:
+                pass 
+            
+            # 1. Structured Scraping
+            items = driver.find_elements(By.CSS_SELECTOR, "li.s-item")
             for item in items:
                 if "Shop on eBay" in item.text: continue
+                if len(results) >= 5: break
                 try:
-                    link_elem = item.find_element(By.CLASS_NAME, "s-item__link")
-                    price_elem = item.find_element(By.CLASS_NAME, "s-item__price")
-                    title_elem = item.find_element(By.CLASS_NAME, "s-item__title")
+                    link_elem = item.find_element(By.CSS_SELECTOR, ".s-item__link")
+                    title_elem = item.find_element(By.CSS_SELECTOR, ".s-item__title")
                     
+                    # Price: try multiple classes
+                    price_text = ""
+                    try:
+                        price_text = item.find_element(By.CSS_SELECTOR, ".s-item__price").text
+                    except:
+                        continue # No price, skip
+
                     link = link_elem.get_attribute("href")
-                    # Price might be "$20.00 to $30.00", take first
-                    price_text = price_elem.text.split(" to ")[0]
-                    price = self._parse_price(price_text)
                     name = title_elem.text
+                    price = self._parse_price(price_text)
                     
                     if price:
-                        return price, link, name
+                        results.append({"source": "eBay", "price": price, "link": link, "name": name})
                 except:
                     continue
-            return None, None, None
+            
+            # 2. Fuzzy Fallback if 0 results
+            if not results:
+                print("eBay: Structured scrape failed. Trying fuzzy fallback...")
+                links = driver.find_elements(By.TAG_NAME, "a")
+                for lnk in links:
+                    if len(results) >= 5: break
+                    try:
+                        href = lnk.get_attribute("href")
+                        if href and "/itm/" in href:
+                            # Check text for price
+                            text = lnk.text
+                            # often price is in the link text or parent text
+                            if "$" not in text:
+                                try:
+                                    text = lnk.find_element(By.XPATH, "..").text
+                                except:
+                                    pass
+                            
+                            match = re.search(r'\$(\d+\.\d{2})', text)
+                            if match:
+                                price = float(match.group(1))
+                                if price > 10: # filtering junk
+                                    results.append({"source": "eBay", "price": price, "link": href, "name": text.split('$')[0].strip()[:50]})
+                    except:
+                        continue
+
+            if not results:
+                # DEBUG: Log page source to check for CAPTCHA/Block
+                import logging
+                src = driver.page_source[:2000].replace("\n", " ")
+                logging.warning(f"eBay found 0 items. Page Source Dump: {src}")
+                
+            return results
         except Exception as e:
             print(f"eBay Error: {e}")
-            return None, None, None
+            return []
 
     def _scrape_amazon(self, driver, product):
+        results = []
         try:
             url = f"https://www.amazon.com/s?k={product.replace(' ', '+')}"
             driver.get(url)
             
             try:
-                WebDriverWait(driver, 5).until(EC.presence_of_element_located((By.CSS_SELECTOR, "div[data-component-type='s-search-result']")))
+                # Wait for any Result item
+                WebDriverWait(driver, 5).until(EC.presence_of_element_located((By.CSS_SELECTOR, "div.s-result-item")))
             except:
                 pass
 
-            # Fallback selectors for items
-            selectors = [
-                 "div[data-component-type='s-search-result']",
-                 ".s-result-item",
-                 "div.sg-col-inner"
-            ]
-            
-            items = []
-            for sel in selectors:
-                items = driver.find_elements(By.CSS_SELECTOR, sel)
-                if items: break
+            # 1. Structured Scraping
+            items = driver.find_elements(By.CSS_SELECTOR, "div.s-result-item[data-component-type='s-search-result']")
+            if not items:
+                items = driver.find_elements(By.CSS_SELECTOR, "div.s-result-item")
             
             for item in items:
+                if len(results) >= 5: break
                 try:
-                    # Try Whole + Fraction first
-                    try:
-                        wh = item.find_element(By.CLASS_NAME, "a-price-whole").text
-                        fr = item.find_element(By.CLASS_NAME, "a-price-fraction").text
-                        price_text = f"{wh}.{fr}"
-                    except:
-                        # Fallback to just text search for $
-                        txt = item.text
-                        match = re.search(r'\$(\d+\.\d{2})', txt)
-                        if match:
-                            price_text = match.group(1)
-                        else:
-                            continue
+                    # Skip if ad holder or special content
+                    if "AdHolder" in item.get_attribute("class"): continue
 
+                    # Name & Link
+                    try:
+                        title_el = item.find_element(By.CSS_SELECTOR, "h2 a")
+                        name = title_el.text
+                        link = title_el.get_attribute("href")
+                    except:
+                        continue
+
+                    # Price
+                    try:
+                        price_el = item.find_element(By.CSS_SELECTOR, ".a-price .a-offscreen")
+                        price_text = price_el.get_attribute("textContent")
+                    except:
+                        # try visible price
+                        try:
+                            price_text = item.find_element(By.CSS_SELECTOR, ".a-price").text
+                        except:
+                            continue # no price
+                    
                     price = self._parse_price(price_text)
                     
-                    # Link
-                    try:
-                        link_elem = item.find_element(By.CSS_SELECTOR, "a.a-link-normal.s-no-outline")
-                    except:
-                         link_elem = item.find_element(By.TAG_NAME, "a")
-                         
-                    link = link_elem.get_attribute("href")
-                    
-                    # Name
-                    try:
-                         name_elem = item.find_element(By.CSS_SELECTOR, "h2 span")
-                         name = name_elem.text
-                    except:
-                         name = "Amazon Product"
-
-                    if price and "http" in link:
-                         return price, link, name
+                    if price and link and name:
+                        results.append({"source": "Amazon", "price": price, "link": link, "name": name})
                 except:
-                    continue
-            return None, None, None
+                   continue
+
+            # 2. Fuzzy Fallback
+            if not results:
+                print("Amazon: Structured scrape failed. Trying fuzzy fallback...")
+                links = driver.find_elements(By.TAG_NAME, "a")
+                for lnk in links:
+                    if len(results) >= 5: break
+                    try:
+                        href = lnk.get_attribute("href")
+                        if href and "/dp/" in href:
+                             # Look for price in parent text
+                             try:
+                                 parent_text = lnk.find_element(By.XPATH, "../../..").text
+                                 match = re.search(r'\$(\d+\.\d{2})', parent_text)
+                                 if match:
+                                     price = float(match.group(1))
+                                     if price > 10:
+                                         name = lnk.text or "Amazon Product"
+                                         results.append({"source": "Amazon", "price": price, "link": href, "name": name})
+                             except:
+                                 pass
+                    except:
+                        continue
+
+            if not results:
+                # DEBUG: Log page source
+                import logging
+                src = driver.page_source[:2000].replace("\n", " ")
+                logging.warning(f"Amazon found 0 items. Page Source Dump: {src}")
+
+            return results
+
         except Exception as e:
-            print(f"Amazon Error: {e}")
-            return None, None, None
-            
+            print(f"Amazon Scrape Error: {e}")
+            return []
+
     def _scrape_slickdeals(self, driver, product):
-        try:
-            url = f"https://slickdeals.net/newsearch.php?q={product.replace(' ', '+')}&searcharea=deals&searchin=first"
-            driver.get(url)
-            
-            try:
-                 WebDriverWait(driver, 5).until(EC.presence_of_element_located((By.CLASS_NAME, "resultRow")))
-            except:
-                 pass
-                 
-            items = driver.find_elements(By.CLASS_NAME, "resultRow")
-            
-            for item in items:
-                try:
-                    link_elem = item.find_element(By.CSS_SELECTOR, "a.dealTitle")
-                    link = link_elem.get_attribute("href")
-                    name = link_elem.text
-                    
-                    price_text = ""
-                    try:
-                        price_elem = item.find_element(By.CLASS_NAME, "price")
-                        price_text = price_elem.text
-                    except:
-                        pass
-                        
-                    price = self._parse_price(price_text)
-                    if not price:
-                        match = re.search(r'\$(\d+\.?\d*)', name)
-                        if match: price = float(match.group(1))
-                            
-                    if price:
-                        return price, link, name
-                except:
-                    continue
-            return None, None, None
-        except Exception as e:
-            print(f"Slickdeals Error: {e}")
-            return None, None, None
+        return []

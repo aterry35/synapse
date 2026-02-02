@@ -1,0 +1,10 @@
+{
+    "id": "whatsapp",
+    "name": "WhatsApp Bridge (Baileys)",
+    "version": "1.0.0",
+    "entry_point": "plugin.WhatsappPlugin",
+    "triggers": [
+        "whatsapp"
+    ],
+    "description": "Integrates WhatsApp via Baileys library (Node.js bridge)."
+}

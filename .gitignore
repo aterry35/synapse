@@ -17,3 +17,9 @@ synapse.db
 active_session.json
 geckodriver.log
 Projects/
+
+# WhatsApp Plugin
+app/plugins/whatsapp/node_modules/
+app/plugins/whatsapp/auth_info_baileys/
+app/plugins/whatsapp/.npm-cache/
+*.log
