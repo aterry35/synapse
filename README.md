@@ -19,7 +19,13 @@
     *   `/sysctl download <url>` (File Acquisition)
 *   **Terminal Access**: Execute safe shell commands via chat.
 
-### 3. **Plugin Architecture** 🧩
+### 3. **Smart Price Engine** 🏷️
+*   **Multi-Site Scraping**: Checks Amazon, eBay, and Slickdeals simultaneously.
+*   **AI Analysis**: Uses Gemini IQ to identify the *real* product and filter out accessories.
+*   **Best Deal**: Returns a single, direct link to the absolute best price.
+*   **Command**: `/deals <product name>`
+
+### 4. **Plugin Architecture** 🧩
 *   **Modular**: Drop new Python scripts into `app/plugins/` to extend functionality instantly.
 *   **Orchestrator**: Manages task queues, locking, and concurrency.
 *   **Web Dashboard**: A Cyberpunk-themed UI (v2.2) to monitor logs and control agents.
@@ -64,7 +70,6 @@ We are building the ultimate AI Assistant. Here's what's coming:
 *   [ ] **Voice Interface**: Real-time voice interaction via WebSockets.
 *   [ ] **Docker Integration**: Sandboxed execution for generated code.
 *   [ ] **Memory Module**: Long-term memory using Vector Databases.
-*   [ ] **Smart Price Engine**: Advanced `/sysctl` logic that scrapes multiple sites (Amazon, eBay, etc.), compares prices, and returns **only** the link to the best deal.
 *   [ ] **Marketplace**: A registry for community plugins.
 
 ---

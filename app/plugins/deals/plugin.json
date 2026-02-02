@@ -1,0 +1,14 @@
+{
+    "id": "deals",
+    "name": "Smart Price Engine",
+    "version": "1.0.0",
+    "entry_point": "deals_plugin.DealsPlugin",
+    "triggers": [
+        "/deals"
+    ],
+    "description": "Scrapes Amazon and eBay to find the best product price.",
+    "capabilities": [
+        "browser",
+        "network"
+    ]
+}

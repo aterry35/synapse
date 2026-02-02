@@ -26,7 +26,7 @@ async def handle_msg(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await context.bot.send_message(chat_id=update.effective_chat.id, text=f"Command Queued (Task {task_id})...")
             
             # Poll for result
-            for _ in range(30): # 60 seconds timeout
+            for _ in range(60): # 120 seconds timeout
                 await asyncio.sleep(2)
                 try:
                     import json

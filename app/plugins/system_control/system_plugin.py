@@ -56,7 +56,7 @@ class SystemPlugin(PluginBase):
                     url = command.replace("download", "").replace("file", "").strip()
                     return self._download_file(url)
 
-                return "Usage: /sysctl [find cost of <item> | play <video> | download <url>]"
+                return "Usage: /sysctl [find cost of <item> | play <video> | download <url> | run <cmd>]"
             
             return f"Echo: {command}"
         finally:
