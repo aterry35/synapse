@@ -1,0 +1,27 @@
+{
+    "name": "System Control",
+    "id": "system",
+    "version": "1.0.0",
+    "entry_point": "system_plugin.SystemPlugin",
+    "triggers": [
+        "/sys",
+        "/system",
+        "/browse",
+        "/stop",
+        "/sysctl"
+    ],
+    "capabilities": [
+        "terminal",
+        "browser"
+    ],
+    "permissions": {
+        "allow_gui": false,
+        "allow_terminal": true,
+        "allow_network": true
+    },
+    "dependencies": [],
+    "requires": {
+        "docker": false,
+        "admin": false
+    }
+}

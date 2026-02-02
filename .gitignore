@@ -1,0 +1,19 @@
+# Secrets
+.env
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+pip-log.txt
+pip-delete-this-directory.txt
+.DS_Store
+*.db
+*.sqlite3
+synapse.db
+active_session.json
+geckodriver.log
+Projects/

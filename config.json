@@ -1,0 +1,32 @@
+{
+    "server": {
+        "bind_host": "127.0.0.1",
+        "port": 8000,
+        "remote_enabled": false,
+        "auth_token": ""
+    },
+    "features": {
+        "docker_enabled": false,
+        "auto_install_enabled": false,
+        "scheduler_enabled": true,
+        "allow_privilege_escalation": false
+    },
+    "plugins": {
+        "antigravity": {
+            "enabled": true,
+            "executable_path": "/Applications/Antigravity.app/Contents/MacOS/Antigravity",
+            "project_root": "Projects"
+        },
+        "system": {
+            "enabled": true,
+            "allow_terminal": true,
+            "allow_network": true
+        },
+        "gcli": {
+            "enabled": true,
+            "working_directory": "Workspace",
+            "auto_approve": false,
+            "max_test_retries": 3
+        }
+    }
+}

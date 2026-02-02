@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Synapse v2.2 | Agentic Orchestrator</title>
+    <link rel="stylesheet" href="style.css">
+    <link
+        href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;600&family=Outfit:wght@300;400;600&display=swap"
+        rel="stylesheet">
+</head>
+
+<body>
+
+    <div class="container">
+        <!-- Hero Section -->
+        <header class="hero">
+            <h1>SYNAPSE <span class="text-accent">v2.2</span></h1>
+            <p>The Advanced Agentic Plugin Orchestrator. Build, Control, and Automate with AI.</p>
+            <div class="plugin-status-row" id="plugin-grid_display">
+                <!-- Plugin statuses will float here -->
+            </div>
+        </header>
+
+        <!-- Main Dashboard -->
+        <div class="dashboard-grid">
+
+            <!-- Left: Live Logs -->
+            <div class="glass-panel">
+                <h3>System Logs</h3>
+                <div id="log-feed">
+                    <div class="log-entry"><span class="log-time">System</span> Initializing feed...</div>
+                </div>
+
+                <!-- Command Input Area -->
+                <div class="control-panel">
+                    <div class="input-group">
+                        <select id="plugin-select">
+                            <option value="">Auto Detect</option>
+                            <option value="/gcli">GCLI (Coding)</option>
+                            <option value="/sysctl">System (/sysctl)</option>
+                            <option value="/sys">System (/sys)</option>
+                        </select>
+                        <input type="text" id="cmd-input" placeholder="Type a command (e.g., /gcli create new app)..."
+                            autofocus>
+                        <button id="send-btn" class="cta-button" style="margin-top:0;">EXECUTE</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right: Active Plugins / Status -->
+            <div class="glass-panel" style="overflow-y: auto;">
+                <h3>Active Plugins</h3>
+                <div id="plugin-grid" style="display: flex; flex-direction: column; gap: 15px; margin-top: 20px;">
+                    <!-- Plugin cards injected here -->
+                </div>
+
+                <div style="margin-top: auto; padding-top: 20px; border-top: 1px solid rgba(255,255,255,0.1);">
+                    <h3>Controls</h3>
+                    <button id="abort-btn"
+                        style="background: rgba(255,50,50,0.2); color: #ff5555; border: 1px solid #ff5555; padding: 10px; width: 100%; border-radius: 6px; cursor: pointer; margin-top: 10px;">
+                        EMERGENCY STOP
+                    </button>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Features Section (Referencing OpenClaw style) -->
+        <div style="margin-top: 60px;">
+            <h2 style="text-align: center; margin-bottom: 40px;">Capabilities</h2>
+            <div class="features-grid">
+                <div class="feature-card">
+                    <span class="feature-icon">⚡️</span>
+                    <h3>GCLI (Gemini Agent)</h3>
+                    <p>Conversational coding agent. Generates projects (React, Python), fixes bugs, and manages the
+                        SDLC.</p>
+                </div>
+                <div class="feature-card">
+                    <span class="feature-icon">🖥️</span>
+                    <h3>System Control</h3>
+                    <p>Browser automation via Selenium. Download files, play media, and scrape data safely.</p>
+                </div>
+                <div class="feature-card">
+                    <span class="feature-icon">🔌</span>
+                    <h3>Plugin Architecture</h3>
+                    <p>Modular design. Drop new Python plugins into the <code>app/plugins</code> folder to extend
+                        functionality.</p>
+                </div>
+                <div class="feature-card">
+                    <span class="feature-icon">🚀</span>
+                    <h3>Open Source</h3>
+                    <p>Get the latest source code from GitHub.</p>
+                    <div
+                        style="margin-top: 10px; background: rgba(0,0,0,0.3); padding: 8px; border-radius: 4px; font-family: monospace; font-size: 0.75rem; color: #00ff00; overflow-x: auto;">
+                        git clone https://github.com/aterry35/synapse.git
+                    </div>
+                    <a href="https://github.com/aterry35/synapse.git" target="_blank"
+                        style="display: inline-block; margin-top: 10px; color: #fff; text-decoration: none; border-bottom: 1px dashed #fff;">View
+                        Repository &rarr;</a>
+                </div>
+            </div>
+        </div>
+
+        <footer style="text-align: center; padding: 40px; color: #555; font-size: 0.9rem;">
+            <p>Synapse Project | <a href="#" style="color: #666;">Documentation</a> | <a href="#"
+                    style="color: #666;">Community Plugins</a></p>
+        </footer>
+
+    </div>
+
+    <script src="dashboard.js"></script>
+</body>
+
+</html>

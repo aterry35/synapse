@@ -1,0 +1,11 @@
+fastapi
+uvicorn
+python-telegram-bot
+fastapi
+uvicorn
+requests
+python-dotenv
+google-genai
+selenium
+webdriver-manager
+python-dotenv

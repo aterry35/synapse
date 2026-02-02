@@ -1,0 +1,24 @@
+{
+    "name": "Google CLI Agent",
+    "id": "gcli",
+    "version": "0.5.0",
+    "entry_point": "gcli_plugin.GCLIPlugin",
+    "triggers": [
+        "/gcli",
+        "/gen"
+    ],
+    "capabilities": [
+        "sdlc",
+        "cli"
+    ],
+    "permissions": {
+        "allow_gui": false,
+        "allow_terminal": true,
+        "allow_network": true
+    },
+    "dependencies": [],
+    "requires": {
+        "docker": false,
+        "admin": false
+    }
+}

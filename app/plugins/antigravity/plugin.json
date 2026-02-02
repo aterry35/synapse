@@ -1,0 +1,28 @@
+{
+    "name": "Antigravity",
+    "id": "antigravity",
+    "version": "1.0.0",
+    "entry_point": "antigravity_plugin.AntigravityPlugin",
+    "triggers": [
+        "/antigravity",
+        "/ag"
+    ],
+    "capabilities": [
+        "gui",
+        "filesystem"
+    ],
+    "permissions": {
+        "allow_gui": true,
+        "allow_terminal": false,
+        "allow_network": false
+    },
+    "dependencies": [
+        "pyautogui",
+        "pygetwindow",
+        "pyperclip"
+    ],
+    "requires": {
+        "docker": false,
+        "admin": false
+    }
+}
