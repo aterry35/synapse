@@ -28,6 +28,9 @@ class SDLCManager:
             self.model = None
             print("[DEBUG] ERROR: No Google API Key found.")
 
+        self.pending_prompt = None
+        self.context_secrets = {}
+
     def _get_active_project_path(self):
         # We need to track which project is 'active' for resume. 
         # Simple file-based tracker.
@@ -42,10 +45,60 @@ class SDLCManager:
         with open(tracker, 'w') as f:
             json.dump({"path": path, "updated": str(datetime.datetime.now())}, f)
 
+    def _analyze_needs(self, prompt):
+        """Asks Gemini if the project needs credentials."""
+        try:
+            q = f"Does the following request require external API keys, secrets, or database credentials? Request: '{prompt}'. Return ONLY a JSON list of the key names needed, e.g. ['OPENAI_API_KEY', 'DB_URL']. If none, return []."
+            resp = self.model.generate_content(q)
+            text = resp.text.strip().replace("```json", "").replace("```", "")
+            return json.loads(text)
+        except:
+            return []
+
     def start_new_project(self, prompt, stop_callback):
         if not self.model:
             return "Error: GOOGLE_API_KEY missing."
 
+        # 0. Analyze Needs
+        stop_callback()
+        self.last_msg = "Analyzing project requirements..."
+        needs = self._analyze_needs(prompt)
+        
+        if needs:
+            self.pending_prompt = prompt
+            self.current_phase = "WAITING_FOR_CREDENTIALS"
+            return json.dumps({
+                "message": f"🧠 **Smart Interceptor**\nI noticed this project likely needs the following credentials:\n`{needs}`\n\nDo you want to provide them now?\n- Reply `/gcli use KEY=VAL,KEY2=VAL` to securely inject them.\n- Reply `/gcli skip` to use placeholders (e.g., .env.example)."
+            })
+            
+        return self._continue_starting_project(prompt, {}, stop_callback)
+
+    def inject_credentials(self, creds_str, stop_callback):
+        if not self.pending_prompt:
+             return "Error: No pending project found. Start one with /gcli create ..."
+        
+        secrets = {}
+        try:
+            # Parse "KEY=VAL, KEY2=VAL"
+            parts = creds_str.split(',')
+            for p in parts:
+                if '=' in p:
+                    k, v = p.split('=', 1)
+                    secrets[k.strip()] = v.strip()
+        except:
+            return "Error parsing credentials. Use format: KEY=VALUE,KEY2=VALUE"
+            
+        return self._continue_starting_project(self.pending_prompt, secrets, stop_callback)
+
+    def skip_credentials(self, stop_callback):
+        if not self.pending_prompt:
+             return "Error: No pending project to skip."
+        return self._continue_starting_project(self.pending_prompt, {}, stop_callback)
+
+    def _continue_starting_project(self, prompt, secrets, stop_callback):
+        self.pending_prompt = None
+        self.context_secrets = secrets
+        
         # 1. Identity Project Name using Gemini
         try:
             name_resp = self.model.generate_content(f"Suggest a short, safe, filesystem-friendly folder name for: {prompt}. Return only the name.")
@@ -65,7 +118,14 @@ class SDLCManager:
         
         try:
             print("[DEBUG] Calling Gemini API...")
-            response = self.model.generate_content(f"Create a detailed REQUIREMENTS.md and Implementation Plan for: {prompt}. Focus on Python/Node/React as appropriate.")
+            
+            secret_context = ""
+            if secrets:
+                secret_context = f"\n\nSECURITY CONTEXT: The user provided these secrets: {list(secrets.keys())}. Use them in the implementation. DO NOT LEAK VALUES IN MARKDOWN."
+            else:
+                secret_context = "\n\nSECURITY CONTEXT: The user did NOT provide secrets. You must generate a .env.example with placeholders."
+
+            response = self.model.generate_content(f"Create a detailed REQUIREMENTS.md and Implementation Plan for: {prompt}. Focus on Python/Node/React as appropriate.{secret_context}")
             print(f"[DEBUG] Gemini Response received. Length: {len(response.text)}")
         except Exception as e:
             print(f"[DEBUG] Gemini API Error: {e}")
@@ -165,6 +225,16 @@ class SDLCManager:
         2. Use `create_file` for ALL file writing. Do not use `open` directly.
         3. Do not just make the root folder.
         
+        MANDATORY FILES TO GENERATE:
+        - A 'Dockerfile' for the application.
+        - A 'README.md' with execution instructions.
+        - 'requirements.txt' or 'package.json' as needed.
+        
+        SECRET INJECTION:
+        - If the user provided secrets, create a '.env' file with the values.
+        - If NOT, create '.env.example' with placeholders.
+        - Secrets Provided: {self.context_secrets}
+        
         Do not explain. Return only the python code block.
         
         Plan: {plan}
@@ -187,7 +257,17 @@ class SDLCManager:
             return json.dumps({"message": f"Coding failed: {e}"})
 
         # 4. Build & Fix Loop
-        return self._run_build_loop(project_path, stop_callback)
+        build_json = self._run_build_loop(project_path, stop_callback)
+        build_res = json.loads(build_json)
+        
+        # 5. Docker Sandbox Loop
+        docker_json = self._run_docker_loop(project_path, stop_callback)
+        docker_res = json.loads(docker_json)
+        
+        final_msg = build_res["message"] + "\n\n" + docker_res["message"]
+        
+        self.current_phase = "DONE"
+        return json.dumps({"message": final_msg})
 
     def _run_build_loop(self, project_path, stop_callback):
         self.current_phase = "BUILDING"
@@ -239,5 +319,62 @@ class SDLCManager:
             if not success:
                 results.append(f"FAILED: {rel_path}")
 
-        self.current_phase = "DONE"
-        return json.dumps({"message": f"Build Process Complete.\nResults:\n" + "\n".join(results)})
+    def _ensure_docker_running(self):
+        """Checks if Docker is running, tries to launch it if not (Mac specific)."""
+        try:
+            # Check info
+            subprocess.run(["docker", "info"], check=True, capture_output=True)
+            return True
+        except subprocess.CalledProcessError:
+            print("[DEBUG] Docker not running. Attempting launch...")
+            # Mac specific open
+            if os.path.exists("/Applications/Docker.app"):
+                subprocess.run(["open", "-a", "Docker"])
+                # Wait loop
+                for i in range(30):
+                    time.sleep(2)
+                    try:
+                        subprocess.run(["docker", "info"], check=True, capture_output=True)
+                        print("[DEBUG] Docker started successfully.")
+                        return True
+                    except:
+                        pass
+            return False
+
+    def _run_docker_loop(self, project_path, stop_callback):
+        self.current_phase = "DOCKERIZING"
+        self.last_msg = "Checking Docker Engine..."
+        stop_callback()
+        
+        if not self._ensure_docker_running():
+            return json.dumps({"message": "⚠️ Docker skipped: Not running or not installed."})
+
+        # Check for Dockerfile
+        if not os.path.exists(os.path.join(project_path, "Dockerfile")):
+             return json.dumps({"message": "⚠️ Docker skipped: No Dockerfile generated."})
+             
+        project_name = os.path.basename(project_path).lower().replace("_", "")
+        
+        # 1. Build
+        self.last_msg = f"Building Docker Image: {project_name}..."
+        print(f"[DEBUG] Building image {project_name}")
+        build_res = subprocess.run(["docker", "build", "-t", project_name, "."], cwd=project_path, capture_output=True, text=True)
+        
+        if build_res.returncode != 0:
+            return json.dumps({"message": f"❌ Docker Build Failed:\n{build_res.stderr[:500]}"})
+            
+        # 2. Run (Cleanup old if exists)
+        self.last_msg = "Starting Container..."
+        subprocess.run(["docker", "rm", "-f", project_name], capture_output=True)
+        
+        # Run with random port mapping (-P)
+        run_res = subprocess.run(["docker", "run", "-d", "--name", project_name, "-P", project_name], capture_output=True, text=True)
+        
+        if run_res.returncode != 0:
+             return json.dumps({"message": f"❌ Docker Run Failed:\n{run_res.stderr[:500]}"})
+             
+        # 3. Get Port
+        port_res = subprocess.run(["docker", "port", project_name], capture_output=True, text=True)
+        ports = port_res.stdout.strip()
+        
+        return json.dumps({"message": f"✅ **Docker Sandbox Active** 🐳\nImage: `{project_name}`\nContainer: `{project_name}`\nPorts: `{ports}`\n\nTo view logs: `docker logs {project_name}`"})

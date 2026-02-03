@@ -34,6 +34,16 @@ class GCLIPlugin(PluginBase):
                 feedback = command.strip()[6:].strip()
                 result = self.manager.refine_requirements(feedback, stop_callback=self.check_stop)
                 return result
+            elif command.strip().lower().startswith("use"):
+                # Credential Injection
+                # /gcli use API_KEY=123
+                creds = command.strip()[3:].strip()
+                result = self.manager.inject_credentials(creds, stop_callback=self.check_stop)
+                return result
+            elif command.strip().lower().startswith("skip"):
+                # Skip Credentials
+                result = self.manager.skip_credentials(stop_callback=self.check_stop)
+                return result
             else:
                 # Start New Flow
                 result = self.manager.start_new_project(command, stop_callback=self.check_stop)
