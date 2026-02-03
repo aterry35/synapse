@@ -162,12 +162,17 @@ class DealsPlugin(PluginBase):
         options.add_argument("--disable-blink-features=AutomationControlled")
         options.add_experimental_option("excludeSwitches", ["enable-automation"])
         options.add_experimental_option("useAutomationExtension", False)
-        options.add_argument("--headless=new")
+        options.add_argument("--headless") # Reverted to standard headless for stability
         options.add_argument("--window-size=1920,1080")
         options.add_argument("--lang=en-US")
         options.add_argument("--accept-lang=en-US,en;q=0.9")
+        # Stability Flags
+        options.add_argument("--no-sandbox")
+        options.add_argument("--disable-dev-shm-usage")
+        options.add_argument("--disable-gpu")
         
-        service = Service(ChromeDriverManager().install())
+        # Force re-install and log to file
+        service = Service(ChromeDriverManager().install(), log_output="chromedriver.log")
         driver = webdriver.Chrome(service=service, options=options)
         
         # Additional undetectable scripts
