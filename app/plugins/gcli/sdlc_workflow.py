@@ -2,9 +2,9 @@ import time
 import os
 import json
 import subprocess
-import google.generativeai as genai
-from app.core.config_manager import ConfigManager
 import datetime
+from app.core.config_manager import ConfigManager
+from app.core.llm_manager import LLMManager
 
 class SDLCManager:
     def __init__(self, config):
@@ -17,16 +17,13 @@ class SDLCManager:
         if not os.path.exists(self.projects_root):
             os.makedirs(self.projects_root, exist_ok=True)
             
-        # Configure Gemini
-        api_key = ConfigManager.get_google_api_key()
-        print(f"[DEBUG] SDLCManager Init. API Key present: {bool(api_key)}")
-        if api_key:
-            genai.configure(api_key=api_key)
-            self.model = genai.GenerativeModel('gemini-2.0-flash')
-            print("[DEBUG] Gemini Configured Successfully.")
-        else:
-            self.model = None
-            print("[DEBUG] ERROR: No Google API Key found.")
+        # Configure LLM
+        try:
+            self.llm = LLMManager.get_instance()
+            print(f"[DEBUG] SDLCManager Init. LLM provider: {self.llm.provider}")
+        except Exception as e:
+            self.llm = None
+            print(f"[DEBUG] ERROR: LLM not configured: {e}")
 
         self.pending_prompt = None
         self.context_secrets = {}
@@ -46,18 +43,18 @@ class SDLCManager:
             json.dump({"path": path, "updated": str(datetime.datetime.now())}, f)
 
     def _analyze_needs(self, prompt):
-        """Asks Gemini if the project needs credentials."""
+        """Asks the configured LLM if the project needs credentials."""
         try:
             q = f"Does the following request require external API keys, secrets, or database credentials? Request: '{prompt}'. Return ONLY a JSON list of the key names needed, e.g. ['OPENAI_API_KEY', 'DB_URL']. If none, return []."
-            resp = self.model.generate_content(q)
+            resp = self.llm.generate_content(q)
             text = resp.text.strip().replace("```json", "").replace("```", "")
             return json.loads(text)
         except:
             return []
 
     def start_new_project(self, prompt, stop_callback):
-        if not self.model:
-            return "Error: GOOGLE_API_KEY missing."
+        if not self.llm:
+            return "Error: LLM not configured. Run the startup setup to select a provider and API key."
 
         # 0. Analyze Needs
         stop_callback()
@@ -99,9 +96,9 @@ class SDLCManager:
         self.pending_prompt = None
         self.context_secrets = secrets
         
-        # 1. Identity Project Name using Gemini
+        # 1. Identify Project Name using the configured LLM
         try:
-            name_resp = self.model.generate_content(f"Suggest a short, safe, filesystem-friendly folder name for: {prompt}. Return only the name.")
+            name_resp = self.llm.generate_content(f"Suggest a short, safe, filesystem-friendly folder name for: {prompt}. Return only the name.")
             project_name = name_resp.text.strip().replace(" ", "_")
         except:
             project_name = f"Project_{int(time.time())}"
@@ -117,7 +114,7 @@ class SDLCManager:
         print(f"[DEBUG] Generating requirements for {project_name}")
         
         try:
-            print("[DEBUG] Calling Gemini API...")
+            print("[DEBUG] Calling LLM API...")
             
             secret_context = ""
             if secrets:
@@ -125,11 +122,11 @@ class SDLCManager:
             else:
                 secret_context = "\n\nSECURITY CONTEXT: The user did NOT provide secrets. You must generate a .env.example with placeholders."
 
-            response = self.model.generate_content(f"Create a detailed REQUIREMENTS.md and Implementation Plan for: {prompt}. Focus on Python/Node/React as appropriate.{secret_context}")
-            print(f"[DEBUG] Gemini Response received. Length: {len(response.text)}")
+            response = self.llm.generate_content(f"Create a detailed REQUIREMENTS.md and Implementation Plan for: {prompt}. Focus on Python/Node/React as appropriate.{secret_context}")
+            print(f"[DEBUG] LLM Response received. Length: {len(response.text)}")
         except Exception as e:
-            print(f"[DEBUG] Gemini API Error: {e}")
-            return f"Error calling Gemini API: {e}"
+            print(f"[DEBUG] LLM API Error: {e}")
+            return f"Error calling LLM API: {e}"
         
         req_path = os.path.join(project_path, "REQUIREMENTS.md")
         with open(req_path, "w") as f:
@@ -170,7 +167,7 @@ class SDLCManager:
         """
         
         try:
-            response = self.model.generate_content(prompt)
+            response = self.llm.generate_content(prompt)
             # Overwrite file
             with open(req_path, "w") as f:
                 f.write(response.text)
@@ -196,34 +193,10 @@ class SDLCManager:
         self.current_phase = "CODING"
         self.last_msg = "Generating code..."
         stop_callback()
-        
-        # Ask for JSON structure of files
-        prompt = f"""
-        Based on this plan, generate the actual code files.
-        Return a JSON object where keys are filenames and values are file contents.
-        Include all necessary config files (package.json, requirements.txt, etc).
-        
-        Plan:
-        {plan}
-        """
-        # Note: Gemini JSON mode is unreliable without strict schema or via text parsing.
-        # We'll stick to text parsing or expect markdown blocks. 
-        # For robustness in v2.2, let's ask for a Python script that WRITES the files.
-        
+
         code_prompt = f"""
-        Write a Python script that, when run, creates the file structure and writes all necessary code files for this project.
-        
-        CRITICAL RULES:
-        1. Define a helper function exactly like this:
-           def create_file(filepath, content=""):
-               directory = os.path.dirname(filepath)
-               if directory:
-                   os.makedirs(directory, exist_ok=True)
-               with open(filepath, "w") as f:
-                   f.write(content)
-                  
-        2. Use `create_file` for ALL file writing. Do not use `open` directly.
-        3. Do not just make the root folder.
+        Return ONLY a JSON object that maps file paths to file contents.
+        Do not include markdown, code fences, or explanations.
         
         MANDATORY FILES TO GENERATE:
         - A 'Dockerfile' for the application.
@@ -235,23 +208,20 @@ class SDLCManager:
         - If NOT, create '.env.example' with placeholders.
         - Secrets Provided: {self.context_secrets}
         
-        Do not explain. Return only the python code block.
+        Do not explain. Return only valid JSON.
         
         Plan: {plan}
         """
         
         try:
-            resp = self.model.generate_content(code_prompt)
-            maker_script = resp.text.replace("```python", "").replace("```", "").strip()
-            
-            # Save maker script
-            maker_path = os.path.join(project_path, "project_maker.py")
-            with open(maker_path, "w") as f:
-                f.write(maker_script)
-                
-            # Run maker script
+            resp = self.llm.generate_content(code_prompt)
+            file_map = self._extract_file_map(resp.text)
+            if not file_map:
+                return json.dumps({"message": "Coding failed: Model did not return valid JSON file map."})
+
             self.last_msg = "Writing files..."
-            subprocess.run(["python3", "project_maker.py"], cwd=project_path, capture_output=True)
+            self._write_files(project_path, file_map)
+            self._ensure_env_files(project_path, file_map)
             
         except Exception as e:
             return json.dumps({"message": f"Coding failed: {e}"})
@@ -312,12 +282,73 @@ class SDLCManager:
                     break
                 
                 # Failed - Auto Fix Logic (Simplified for now, we just retry)
-                # In v2.2 we should call Gemini here.
+                # In v2.2 we should call the LLM here.
                 # error_log = res.stderr
                 # ...
                 
             if not success:
-                results.append(f"FAILED: {rel_path}")
+                results.append(f"FAILED: {rel_path} ({res.stderr[:200].strip()})")
+
+        summary = "Build results:\n" + "\n".join(results)
+        return json.dumps({"message": summary})
+
+    def _extract_file_map(self, text):
+        cleaned = text.strip()
+        if cleaned.startswith("```"):
+            lines = cleaned.splitlines()
+            if lines and lines[0].startswith("```"):
+                lines = lines[1:]
+            if lines and lines[-1].startswith("```"):
+                lines = lines[:-1]
+            cleaned = "\n".join(lines).strip()
+
+        try:
+            data = json.loads(cleaned)
+        except Exception:
+            # Try extracting the first JSON object if extra text exists
+            start = cleaned.find("{")
+            end = cleaned.rfind("}")
+            if start != -1 and end != -1 and end > start:
+                try:
+                    data = json.loads(cleaned[start:end+1])
+                except Exception:
+                    return None
+            else:
+                return None
+
+        if not isinstance(data, dict):
+            return None
+        return data
+
+    def _safe_join(self, root, rel_path):
+        if os.path.isabs(rel_path):
+            raise ValueError("Absolute paths are not allowed.")
+        norm = os.path.normpath(rel_path)
+        if norm.startswith(".."):
+            raise ValueError("Path traversal is not allowed.")
+        return os.path.join(root, norm)
+
+    def _write_files(self, project_path, file_map):
+        for rel_path, content in file_map.items():
+            safe_path = self._safe_join(project_path, rel_path)
+            directory = os.path.dirname(safe_path)
+            if directory:
+                os.makedirs(directory, exist_ok=True)
+            with open(safe_path, "w") as f:
+                f.write(content if isinstance(content, str) else str(content))
+
+    def _ensure_env_files(self, project_path, file_map):
+        if self.context_secrets:
+            if ".env" not in file_map:
+                env_path = os.path.join(project_path, ".env")
+                with open(env_path, "w") as f:
+                    for k, v in self.context_secrets.items():
+                        f.write(f"{k}={v}\n")
+        else:
+            if ".env.example" not in file_map:
+                env_example_path = os.path.join(project_path, ".env.example")
+                with open(env_example_path, "w") as f:
+                    f.write("API_KEY=your_key_here\n")
 
     def _ensure_docker_running(self):
         """Checks if Docker is running, tries to launch it if not (Mac specific)."""
@@ -349,16 +380,32 @@ class SDLCManager:
         if not self._ensure_docker_running():
             return json.dumps({"message": "⚠️ Docker skipped: Not running or not installed."})
 
-        # Check for Dockerfile
-        if not os.path.exists(os.path.join(project_path, "Dockerfile")):
-             return json.dumps({"message": "⚠️ Docker skipped: No Dockerfile generated."})
+        # Check for Dockerfile (Recursive)
+        dockerfile_path = None
+        docker_workdir = project_path
+        
+        # Check root first
+        if os.path.exists(os.path.join(project_path, "Dockerfile")):
+            dockerfile_path = os.path.join(project_path, "Dockerfile")
+        else:
+            # Check depth 1
+            for item in os.listdir(project_path):
+                sub = os.path.join(project_path, item)
+                if os.path.isdir(sub) and os.path.exists(os.path.join(sub, "Dockerfile")):
+                    dockerfile_path = os.path.join(sub, "Dockerfile")
+                    docker_workdir = sub
+                    break
+                    
+        if not dockerfile_path:
+             return json.dumps({"message": "⚠️ Docker skipped: No Dockerfile generated (checked root and subfolders)."})
              
-        project_name = os.path.basename(project_path).lower().replace("_", "")
+        # Use folder name as project name
+        project_name = os.path.basename(docker_workdir).lower().replace("_", "").replace("-", "")
         
         # 1. Build
         self.last_msg = f"Building Docker Image: {project_name}..."
-        print(f"[DEBUG] Building image {project_name}")
-        build_res = subprocess.run(["docker", "build", "-t", project_name, "."], cwd=project_path, capture_output=True, text=True)
+        print(f"[DEBUG] Building image {project_name} in {docker_workdir}")
+        build_res = subprocess.run(["docker", "build", "-t", project_name, "."], cwd=docker_workdir, capture_output=True, text=True)
         
         if build_res.returncode != 0:
             return json.dumps({"message": f"❌ Docker Build Failed:\n{build_res.stderr[:500]}"})

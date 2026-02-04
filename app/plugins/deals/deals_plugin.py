@@ -8,6 +8,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
 from app.core.plugin_base import PluginBase
+from app.core.llm_manager import LLMManager
 
 class DealsPlugin(PluginBase):
     def on_load(self):
@@ -50,8 +51,8 @@ class DealsPlugin(PluginBase):
             if not candidates:
                  return f"Could not find valid prices for '{product}' on Amazon, eBay, or Slickdeals. (Websites might be blocking the bot)."
             
-            # Use Gemini to find the best deal if available
-            best_deal = self._analyze_with_gemini(candidates, product)
+            # Use the configured LLM to find the best deal if available
+            best_deal = self._analyze_with_llm(candidates, product)
             
             if best_deal:
                 winner = best_deal
@@ -85,22 +86,18 @@ class DealsPlugin(PluginBase):
                 except:
                     pass
 
-    def _analyze_with_gemini(self, candidates, product):
-        import os
-        import google.generativeai as genai
-        
-        api_key = os.getenv("GOOGLE_API_KEY")
-        if not api_key:
+    def _analyze_with_llm(self, candidates, product):
+        try:
+            llm = LLMManager.get_instance()
+        except Exception as e:
+            print(f"LLM unavailable: {e}")
             return None
             
         try:
-            genai.configure(api_key=api_key)
-            model = genai.GenerativeModel('gemini-2.0-flash')
-            
             prompt = f"""
             You are a smart shopping assistant. I am searching for: "{product}".
             
-            Here are the candidate products found on Amazon/eBay:
+            Here are the candidate products found on Amazon/eBay/Slickdeals:
             {candidates}
             
             YOUR TASK:
@@ -123,7 +120,7 @@ class DealsPlugin(PluginBase):
             Return ONLY valid JSON. No markdown formatting.
             """
             
-            response = model.generate_content(prompt)
+            response = llm.generate_content(prompt)
             # Robust JSON cleaning
             text = response.text.strip()
             if text.startswith("```json"):
@@ -132,23 +129,48 @@ class DealsPlugin(PluginBase):
                 text = text[:-3]
             text = text.strip()
             
-            import json
-            try:
-                data = json.loads(text)
-                if "error" in data: return None
-                return data
-            except:
-                # Fallback: try eval but be careful
-                try:
-                    return eval(text)
-                except:
-                    print(f"JSON Parse Failed. Text: {text}")
-                    return None
+            data = self._safe_json_load(text)
+            if not data or "error" in data:
+                return None
+            if not self._is_valid_candidate(data):
+                print(f"Invalid candidate shape from model: {data}")
+                return None
+            return data
                 
         except Exception as e:
-            print(f"Gemini Analysis Failed: {e}")
+            print(f"LLM Analysis Failed: {e}")
             return None
 
+    def _safe_json_load(self, text):
+        import json
+        try:
+            return json.loads(text)
+        except Exception:
+            pass
+
+        # Try to extract the first JSON object if model added extra text
+        start = text.find("{")
+        end = text.rfind("}")
+        if start != -1 and end != -1 and end > start:
+            try:
+                return json.loads(text[start:end+1])
+            except Exception:
+                pass
+        print(f"JSON Parse Failed. Text: {text}")
+        return None
+
+    def _is_valid_candidate(self, data):
+        if not isinstance(data, dict):
+            return False
+        required = ["source", "price", "link", "name"]
+        for key in required:
+            if key not in data:
+                return False
+        try:
+            float(data["price"])
+        except Exception:
+            return False
+        return True
 
     def _get_driver(self):
         options = webdriver.ChromeOptions()
@@ -193,7 +215,10 @@ class DealsPlugin(PluginBase):
             # Handle range: "10 to 20"
             if ' ' in clean:
                 clean = clean.split(' ')[0]
-            return float(re.findall(r"\d+\.\d+", clean)[0])
+            match = re.search(r"\d+(?:\.\d+)?", clean)
+            if not match:
+                return None
+            return float(match.group(0))
         except:
             return None
 
@@ -357,4 +382,72 @@ class DealsPlugin(PluginBase):
             return []
 
     def _scrape_slickdeals(self, driver, product):
-        return []
+        results = []
+        try:
+            url = f"https://slickdeals.net/newsearch.php?q={product.replace(' ', '+')}&searcharea=deals&searchin=first"
+            driver.get(url)
+
+            try:
+                WebDriverWait(driver, 5).until(
+                    EC.presence_of_element_located((By.CSS_SELECTOR, ".resultRow, .dealTile, .dealCard"))
+                )
+            except:
+                pass
+
+            # 1. Structured scraping
+            items = driver.find_elements(By.CSS_SELECTOR, ".resultRow, .dealTile, .dealCard")
+            for item in items:
+                if len(results) >= 5:
+                    break
+                try:
+                    # Title & link
+                    link_el = None
+                    try:
+                        link_el = item.find_element(By.CSS_SELECTOR, "a.dealLink, a.dealTitle, a")
+                    except:
+                        continue
+                    link = link_el.get_attribute("href")
+                    name = link_el.text.strip()
+
+                    # Price (best effort)
+                    price_text = ""
+                    try:
+                        price_text = item.find_element(By.CSS_SELECTOR, ".price, .dealPrice, .priceInfo, .threadPrice").text
+                    except:
+                        price_text = item.text
+
+                    price = self._parse_price(price_text)
+                    if link and "slickdeals.net" in link and price:
+                        results.append({"source": "Slickdeals", "price": price, "link": link, "name": name or "Slickdeals Deal"})
+                except:
+                    continue
+
+            # 2. Fuzzy fallback
+            if not results:
+                links = driver.find_elements(By.CSS_SELECTOR, "a[href*='slickdeals.net/f/']")
+                for lnk in links:
+                    if len(results) >= 5:
+                        break
+                    try:
+                        href = lnk.get_attribute("href")
+                        text = lnk.text
+                        if not text:
+                            try:
+                                text = lnk.find_element(By.XPATH, "..").text
+                            except:
+                                text = ""
+                        price = self._parse_price(text)
+                        if href and price:
+                            results.append({"source": "Slickdeals", "price": price, "link": href, "name": text.split('$')[0].strip()[:80] or "Slickdeals Deal"})
+                    except:
+                        continue
+
+            if not results:
+                import logging
+                src = driver.page_source[:2000].replace("\n", " ")
+                logging.warning(f"Slickdeals found 0 items. Page Source Dump: {src}")
+
+            return results
+        except Exception as e:
+            print(f"Slickdeals Scrape Error: {e}")
+            return []

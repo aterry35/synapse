@@ -2,16 +2,27 @@
 
 ## 1. Subscriptions & API Keys
 
-To run Synapse with full AI capabilities using **Google Gemini**, you need the following:
+Synapse supports multiple LLM providers. On startup you will be prompted to select one and enter its API key.
 
-### A. Google Gemini API Key
-Synapse uses the Gemini API for intelligence.
+### A. Google Gemini API Key (Gemini)
 1.  **Cost**: Free tier available (rate limited) or Pay-as-you-go.
 2.  **How to Get**:
     - Go to [Google AI Studio](https://aistudio.google.com/).
     - Click **Get API Key**.
     - Create a key in a new or existing Google Cloud project.
     - Copy the key string (starts with `AIza...`).
+
+### B. OpenAI API Key (GPT)
+1.  **Cost**: Pay-as-you-go.
+2.  **How to Get**:
+    - Go to the OpenAI dashboard.
+    - Create an API key.
+
+### C. Anthropic API Key (Claude)
+1.  **Cost**: Pay-as-you-go.
+2.  **How to Get**:
+    - Go to the Anthropic console.
+    - Create an API key.
 
 ### B. Telegram Bot Token (Optional but Recommended)
 For mobile control via Telegram.
@@ -32,7 +43,10 @@ You must configure the `.env` file in the root directory `/Synapse/.env`.
 # /Synapse/.env
 
 TELEGRAM_TOKEN=123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11
+LLM_PROVIDER=gemini
 GOOGLE_API_KEY=AIzaSyD-1234567890abcdef1234567890
+OPENAI_API_KEY=sk-...
+ANTHROPIC_API_KEY=...
 ```
 
 ---

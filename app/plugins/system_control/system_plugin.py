@@ -1,5 +1,6 @@
 import subprocess
 import time
+import shlex
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
@@ -32,14 +33,17 @@ class SystemPlugin(PluginBase):
                     raise PermissionError("Network access disabled for System plugin.")
                 return f"Simulated download of {command} (Browser automation not installed in this env)"
 
-            if "run" in command or "exec" in command:
-                if not self.config.get("allow_terminal", False):
-                    raise PermissionError("Terminal access disabled for System plugin.")
-                
-                # Careful: command might be "run ipconfig"
-                # Strip "run "
-                cmd_to_run = command.replace("run ", "").replace("exec ", "")
-                return self._run_terminal(cmd_to_run)
+            if context.get('trigger') in ['/sysctl', '/sys', '/system']:
+                cmd_lower = command.lower().strip()
+                if cmd_lower.startswith("run ") or cmd_lower.startswith("exec "):
+                    if not self.config.get("allow_terminal", False):
+                        raise PermissionError("Terminal access disabled for System plugin.")
+                    # Strip command prefix
+                    cmd_to_run = command.strip()[4:] if cmd_lower.startswith("run ") else command.strip()[5:]
+                    cmd_to_run = cmd_to_run.strip()
+                    if not cmd_to_run:
+                        return "Usage: /sysctl run <cmd>"
+                    return self._run_terminal(cmd_to_run)
             
             if context.get('trigger') == '/sysctl':
                 cmd_lower = command.lower()
@@ -64,7 +68,8 @@ class SystemPlugin(PluginBase):
 
     def _run_terminal(self, cmd):
         # Blocking call
-        res = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+        args = shlex.split(cmd)
+        res = subprocess.run(args, capture_output=True, text=True)
         return res.stdout if res.returncode == 0 else f"Error: {res.stderr}"
 
     def _get_driver(self):

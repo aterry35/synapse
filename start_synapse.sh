@@ -16,6 +16,10 @@ echo "========================================"
 echo "   SYNAPSE v2.2 - ORCHESTRATOR START    "
 echo "========================================"
 
+# 0. LLM Provider Setup
+echo "[*] LLM provider setup..."
+python3 app/core/llm_setup.py
+
 # Check if port 8000 is in use
 if lsof -i :8000 > /dev/null; then
     echo "Port 8000 is busy. Attempting to free it..."
